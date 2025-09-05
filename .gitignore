@@ -1,0 +1,4 @@
+# Google Ads Costi Script - .gitignore
+
+# Cartella privata con credenziali e configurazioni sensibili
+privato/

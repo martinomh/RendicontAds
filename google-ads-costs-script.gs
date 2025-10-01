@@ -437,10 +437,11 @@ function eseguiQueryGoogleAds(query, customerId, accessToken) {
 
 /**
  * Ottiene un access token fresco usando il refresh token
+ * Gestisce automaticamente il refresh quando il token è scaduto
  */
 function ottieniAccessToken() {
   try {
-
+    console.log('🔄 Ottenimento access token...');
     
     const response = UrlFetchApp.fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
@@ -453,13 +454,43 @@ function ottieniAccessToken() {
     });
     
     const responseCode = response.getResponseCode();
+    const responseText = response.getContentText();
+    
     if (responseCode !== 200) {
-      const errorText = response.getContentText();
-      console.error(`❌ Errore refresh token (${responseCode}):`, errorText);
+      console.error(`❌ Errore refresh token (${responseCode}):`, responseText);
+      
+      // Gestisci errori specifici secondo la documentazione Google OAuth 2.0
+      if (responseCode === 400) {
+        try {
+          const errorData = JSON.parse(responseText);
+          
+          if (errorData.error === 'invalid_grant') {
+            console.error('🔑 Refresh token scaduto o revocato');
+            console.error('💡 POSSIBILI CAUSE:');
+            console.error('   • Token non utilizzato per 6 mesi');
+            console.error('   • Utente ha revocato l\'accesso');
+            console.error('   • Utente ha cambiato password');
+            console.error('   • Limite di 100 refresh token raggiunto');
+            console.error('   • Politiche amministrative attive');
+            console.error('💡 SOLUZIONE: Esegui "🔄 Rigenera Refresh Token" dal menu');
+            throw new Error('Refresh token scaduto. Usa il menu per rigenerarlo.');
+          }
+          
+          if (errorData.error === 'invalid_client') {
+            console.error('🔑 Credenziali OAuth2 non valide');
+            console.error('💡 SOLUZIONE: Verifica CLIENT_ID e CLIENT_SECRET in config.gs');
+            throw new Error('Credenziali OAuth2 non valide. Verifica la configurazione.');
+          }
+          
+        } catch (parseError) {
+          console.error('❌ Errore nel parsing della risposta di errore:', parseError);
+        }
+      }
+      
       return null;
     }
     
-    const tokens = JSON.parse(response.getContentText());
+    const tokens = JSON.parse(responseText);
     const accessToken = tokens.access_token;
     
     if (!accessToken) {
@@ -467,7 +498,7 @@ function ottieniAccessToken() {
       return null;
     }
     
-    
+    console.log('✅ Access token ottenuto con successo');
     return accessToken;
     
   } catch (error) {

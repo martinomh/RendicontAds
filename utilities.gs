@@ -17,7 +17,9 @@
           .addSubMenu(ui.createMenu('🔑 OAuth2 Setup')
       .addItem('🔄 Rigenera Refresh Token', 'rigeneraRefreshToken')
       .addItem('🔑 Converti Codice in Refresh Token', 'convertiCodiceInRefreshToken')
-      .addItem('📋 Genera URL Autorizzazione', 'getRefreshTokenSimple'))
+      .addItem('📋 Genera URL Autorizzazione', 'getRefreshTokenSimple')
+      .addItem('🧪 Test Connessione OAuth', 'testConnessioneOAuth')
+      .addItem('🔍 Verifica Stato Refresh Token', 'verificaStatoRefreshToken'))
     .addSeparator()
       .addItem('☑️ Seleziona Account', 'selezionaAccountInterattivo')
     .addSubMenu(ui.createMenu('📅 Configurazione Date')
@@ -882,4 +884,116 @@ function rilevaErroreOAuth(error) {
     
     const data = new Date(dataStr);
     return data instanceof Date && !isNaN(data);
+  }
+
+  /**
+   * Testa la connessione OAuth2 e il refresh token
+   * Utile per verificare che tutto funzioni prima di schedulare lo script
+   */
+  function testConnessioneOAuth() {
+    try {
+      console.log('🧪 Test connessione OAuth2...');
+      
+      // Verifica credenziali
+      if (!API_CONFIG.CLIENT_ID || !API_CONFIG.CLIENT_SECRET || !API_CONFIG.REFRESH_TOKEN) {
+        console.error('❌ Credenziali OAuth2 non configurate');
+        return false;
+      }
+      
+      // Testa il refresh token
+      const accessToken = ottieniAccessToken();
+      if (!accessToken) {
+        console.error('❌ Impossibile ottenere access token');
+        console.error('💡 POSSIBILI CAUSE:');
+        console.error('   • Refresh token scaduto (non utilizzato per 6 mesi)');
+        console.error('   • Utente ha revocato l\'accesso');
+        console.error('   • Credenziali CLIENT_ID/CLIENT_SECRET non valide');
+        console.error('   • Limite di 100 refresh token raggiunto');
+        return false;
+      }
+      
+      console.log('✅ Connessione OAuth2 funzionante');
+      console.log('✅ Access token ottenuto con successo');
+      console.log('✅ Refresh token valido');
+      
+      // Testa una chiamata API semplice
+      console.log('🔗 Test chiamata API Google Ads...');
+      const testQuery = 'SELECT customer.id FROM customer LIMIT 1';
+      const testResponse = eseguiQueryGoogleAds(testQuery, '1538996322', accessToken);
+      
+      if (testResponse && testResponse.results) {
+        console.log('✅ Chiamata API Google Ads funzionante');
+        console.log('✅ Tutto configurato correttamente per l\'esecuzione automatica');
+        console.log('💡 CONSIGLIO: Esegui questo test prima di schedulare lo script');
+        return true;
+      } else {
+        console.error('❌ Chiamata API Google Ads fallita');
+        return false;
+      }
+      
+    } catch (error) {
+      console.error('❌ Errore nel test connessione:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Verifica lo stato del refresh token senza fare chiamate API
+   * Utile per controlli rapidi
+   */
+  function verificaStatoRefreshToken() {
+    try {
+      console.log('🔍 Verifica stato refresh token...');
+      
+      // Verifica credenziali
+      if (!API_CONFIG.CLIENT_ID || !API_CONFIG.CLIENT_SECRET || !API_CONFIG.REFRESH_TOKEN) {
+        console.error('❌ Credenziali OAuth2 non configurate');
+        return false;
+      }
+      
+      // Testa solo il refresh token
+      const accessToken = ottieniAccessToken();
+      if (!accessToken) {
+        console.error('❌ Refresh token non valido');
+        return false;
+      }
+      
+      console.log('✅ Refresh token funzionante');
+      console.log('💡 Il token è valido e può essere utilizzato per l\'esecuzione automatica');
+      return true;
+      
+    } catch (error) {
+      console.error('❌ Errore nella verifica refresh token:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Mantiene attivo il refresh token eseguendo un test silenzioso
+   * Da eseguire giornalmente tramite trigger per evitare scadenze
+   */
+  function mantieniRefreshTokenAttivo() {
+    try {
+      console.log('🔄 Keep-alive refresh token...');
+      
+      // Verifica credenziali
+      if (!API_CONFIG.CLIENT_ID || !API_CONFIG.CLIENT_SECRET || !API_CONFIG.REFRESH_TOKEN) {
+        console.error('❌ Credenziali OAuth2 non configurate per keep-alive');
+        return false;
+      }
+      
+      // Testa il refresh token (senza chiamate API pesanti)
+      const accessToken = ottieniAccessToken();
+      if (!accessToken) {
+        console.error('❌ Refresh token non valido durante keep-alive');
+        return false;
+      }
+      
+      console.log('✅ Keep-alive completato - Refresh token attivo');
+      return true;
+      
+    } catch (error) {
+      console.error('❌ Errore durante keep-alive:', error);
+      return false;
+    }
   }

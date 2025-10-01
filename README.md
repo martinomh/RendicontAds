@@ -165,6 +165,26 @@ Lo script gestisce automaticamente:
 | "HTTP 403" | Permessi insufficienti | Verifica Manager Account ID |
 | "HTTP 404" | Endpoint API errato | Verifica versione API (v21) |
 
+### Gestione Refresh Token
+
+**Cause comuni di scadenza refresh token:**
+- **Non utilizzato per 6 mesi** (più comune)
+- **Utente ha revocato l'accesso** all'app
+- **Utente ha cambiato password**
+- **Limite di 100 refresh token** per account raggiunto
+- **Politiche amministrative** attive
+
+**Test Pre-Schedulazione:**
+1. Esegui "🧪 Test Connessione OAuth" dal menu
+2. Verifica che tutti i test passino
+3. Solo dopo configura il trigger automatico
+
+**Keep-Alive Refresh Token (Raccomandato):**
+Per evitare scadenze del refresh token, configura un trigger giornaliero:
+1. **Crea trigger giornaliero** per `mantieniRefreshTokenAttivo`
+2. **Frequenza**: Una volta al giorno (es. 8:00 AM)
+3. **Risultato**: Il refresh token rimane sempre attivo
+
 ### Log e Debug
 
 - **Controlla i log** in Apps Script > Esecuzioni

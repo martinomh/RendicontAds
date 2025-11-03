@@ -19,7 +19,8 @@
       .addItem('🔑 Converti Codice in Refresh Token', 'convertiCodiceInRefreshToken')
       .addItem('📋 Genera URL Autorizzazione', 'getRefreshTokenSimple')
       .addItem('🧪 Test Connessione OAuth', 'testConnessioneOAuth')
-      .addItem('🔍 Verifica Stato Refresh Token', 'verificaStatoRefreshToken'))
+      .addItem('🔍 Verifica Stato Refresh Token', 'verificaStatoRefreshToken')
+      .addItem('🔄 Mantieni Token Attivo', 'mantieniRefreshTokenAttivo'))
     .addSeparator()
       .addItem('☑️ Seleziona Account', 'selezionaAccountInterattivo')
     .addSubMenu(ui.createMenu('📅 Configurazione Date')
@@ -969,12 +970,15 @@ function rilevaErroreOAuth(error) {
   }
 
   /**
-   * Mantiene attivo il refresh token eseguendo un test silenzioso
+   * Mantiene attivo il refresh token eseguendo una vera chiamata API
    * Da eseguire giornalmente tramite trigger per evitare scadenze
+   * 
+   * IMPORTANTE: Google considera un refresh token "utilizzato" solo quando
+   * viene usato per fare chiamate API reali, non solo per ottenere access token
    */
   function mantieniRefreshTokenAttivo() {
     try {
-      console.log('🔄 Keep-alive refresh token...');
+      console.log('🔄 Keep-alive refresh token (con chiamata API reale)...');
       
       // Verifica credenziali
       if (!API_CONFIG.CLIENT_ID || !API_CONFIG.CLIENT_SECRET || !API_CONFIG.REFRESH_TOKEN) {
@@ -982,15 +986,34 @@ function rilevaErroreOAuth(error) {
         return false;
       }
       
-      // Testa il refresh token (senza chiamate API pesanti)
+      // Ottieni access token
       const accessToken = ottieniAccessToken();
       if (!accessToken) {
-        console.error('❌ Refresh token non valido durante keep-alive');
+        console.error('❌ Impossibile ottenere access token durante keep-alive');
         return false;
       }
       
-      console.log('✅ Keep-alive completato - Refresh token attivo');
-      return true;
+      // FAI UNA VERA CHIAMATA API per "utilizzare" il refresh token
+      // Usa listAccessibleCustomers che è veloce e non richiede parametri
+      const apiUrl = `${API_CONFIG.BASE_URL}/customers:listAccessibleCustomers`;
+      
+      const response = UrlFetchApp.fetch(apiUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'developer-token': API_CONFIG.DEVELOPER_TOKEN,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      const responseCode = response.getResponseCode();
+      if (responseCode === 200) {
+        console.log('✅ Keep-alive completato - Refresh token utilizzato attivamente');
+        return true;
+      } else {
+        console.error(`❌ Keep-alive fallito (${responseCode}):`, response.getContentText());
+        return false;
+      }
       
     } catch (error) {
       console.error('❌ Errore durante keep-alive:', error);

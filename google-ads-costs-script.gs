@@ -62,9 +62,17 @@ function estraiCostiMensili() {
     CONFIG.ACCOUNT_NAMES = accountNames;
     
     // Ottieni l'access token una sola volta per tutte le chiamate
-    const accessToken = ottieniAccessToken();
-    if (!accessToken) {
-      throw new Error('❌ Impossibile ottenere access token');
+    let accessToken;
+    try {
+      accessToken = ottieniAccessToken();
+      if (!accessToken) {
+        throw new Error('❌ Impossibile ottenere access token - refresh token potrebbe essere scaduto');
+      }
+    } catch (error) {
+      console.error('❌ Errore critico nell\'ottenimento access token:', error);
+      console.error('💡 SOLUZIONE: Esegui "🔄 Mantieni Token Attivo" quotidianamente tramite trigger');
+      console.error('💡 Oppure rigenera il refresh token se il problema persiste');
+      throw new Error('❌ Impossibile ottenere access token: ' + error.message);
     }
     
     for (const customerId of CONFIG.CUSTOMER_IDS) {

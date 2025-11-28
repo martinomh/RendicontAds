@@ -185,6 +185,9 @@ Per evitare scadenze del refresh token, configura un trigger giornaliero:
 2. **Frequenza**: Una volta al giorno (es. 8:00 AM)
 3. **Risultato**: Il refresh token rimane sempre attivo
 
+**Notifica Automatica:**
+Se il refresh token scade (nonostante il keep-alive), riceverai automaticamente un'email di notifica con le istruzioni per rigenerarlo. Questo ti permette di intervenire tempestivamente prima che lo script mensile fallisca.
+
 ### Log e Debug
 
 - **Controlla i log** in Apps Script > Esecuzioni

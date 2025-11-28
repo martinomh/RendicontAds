@@ -752,21 +752,28 @@ function rilevaErroreOAuth(error) {
       
       if (errorMessage.includes('invalid_grant') || errorMessage.includes('token has been expired')) {
         console.log('🔍 Rilevato errore OAuth: Refresh token scaduto o revocato');
+        console.error('💡 SOLUZIONE: Esegui "🔄 Rigenera Refresh Token" dal menu "🔑 OAuth2 Setup"');
         
-        const ui = SpreadsheetApp.getUi();
-        const response = ui.alert(
-          '🔑 Refresh Token Scaduto',
-          'Il tuo refresh token è scaduto o è stato revocato.\n\n' +
-          'Per risolvere questo problema:\n' +
-          '1. Vai nel menu "🔑 OAuth2 Setup"\n' +
-          '2. Clicca su "🔄 Rigenera Refresh Token"\n' +
-          '3. Segui le istruzioni per ottenere un nuovo token\n\n' +
-          'Vuoi aprire la guida per la rigenerazione del token?',
-          ui.ButtonSet.YES_NO
-        );
-        
-        if (response === ui.Button.YES) {
-          rigeneraRefreshToken();
+        // Prova a mostrare UI solo se disponibile (non da trigger)
+        try {
+          const ui = SpreadsheetApp.getUi();
+          const response = ui.alert(
+            '🔑 Refresh Token Scaduto',
+            'Il tuo refresh token è scaduto o è stato revocato.\n\n' +
+            'Per risolvere questo problema:\n' +
+            '1. Vai nel menu "🔑 OAuth2 Setup"\n' +
+            '2. Clicca su "🔄 Rigenera Refresh Token"\n' +
+            '3. Segui le istruzioni per ottenere un nuovo token\n\n' +
+            'Vuoi aprire la guida per la rigenerazione del token?',
+            ui.ButtonSet.YES_NO
+          );
+          
+          if (response === ui.Button.YES) {
+            rigeneraRefreshToken();
+          }
+        } catch (uiError) {
+          // UI non disponibile (esecuzione da trigger) - solo log
+          console.log('ℹ️ Esecuzione da trigger: UI non disponibile per mostrare alert');
         }
         
         return true; // Errore gestito
@@ -987,7 +994,44 @@ function rilevaErroreOAuth(error) {
       }
       
       // Ottieni access token
-      const accessToken = ottieniAccessToken();
+      let accessToken;
+      try {
+        accessToken = ottieniAccessToken();
+      } catch (error) {
+        // Se il refresh token è scaduto, invia notifica email
+        const errorMessage = error.toString().toLowerCase();
+        if (errorMessage.includes('invalid_grant') || errorMessage.includes('token has been expired') || errorMessage.includes('refresh token scaduto')) {
+          console.error('❌ Refresh token scaduto durante keep-alive');
+          console.error('💡 AZIONE RICHIESTA: Rigenera il refresh token dal menu "🔑 OAuth2 Setup"');
+          
+          // Invia notifica email all'utente
+          try {
+            const email = Session.getActiveUser().getEmail();
+            const subject = '🔑 Refresh Token Scaduto - Google Ads Costi Script';
+            const body = `
+Il refresh token per lo script "Google Ads Costi" è scaduto.
+
+AZIONE RICHIESTA:
+1. Apri il foglio Google Sheets con lo script
+2. Vai nel menu "🚀 Google Ads Costi" > "🔑 OAuth2 Setup"
+3. Clicca su "🔄 Rigenera Refresh Token"
+4. Segui le istruzioni per ottenere un nuovo token
+
+IMPORTANTE: Fino a quando non rigeneri il token, lo script non funzionerà.
+
+---
+Questo è un messaggio automatico generato dallo script.
+            `;
+            
+            MailApp.sendEmail(email, subject, body);
+            console.log('📧 Email di notifica inviata a:', email);
+          } catch (emailError) {
+            console.error('❌ Impossibile inviare email di notifica:', emailError);
+          }
+        }
+        return false;
+      }
+      
       if (!accessToken) {
         console.error('❌ Impossibile ottenere access token durante keep-alive');
         return false;

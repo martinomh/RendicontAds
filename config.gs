@@ -48,6 +48,11 @@ const API_CONFIG = {
   // 🔑 REFRESH TOKEN - Ottenuto dopo la prima autorizzazione
   REFRESH_TOKEN: 'INSERISCI_IL_TUO_REFRESH_TOKEN_QUI',
   
+  // 🌐 REDIRECT URI - Obbligatorio con app in Production (OOB deprecato).
+  // Dopo aver fatto "Deploy" → "Nuova distribuzione" → "App Web", incolla qui l'URL dell'app (es. https://script.google.com/macros/s/XXXX/exec).
+  // Se lasci vuoto, lo script userà ScriptApp.getService().getUrl() se l'app è già distribuita.
+  REDIRECT_URI: '',
+  
   // 🌐 ENDPOINT API (NON MODIFICARE)
   BASE_URL: 'https://googleads.googleapis.com/v21',
   

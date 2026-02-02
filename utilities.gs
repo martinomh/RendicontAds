@@ -17,6 +17,7 @@
           .addSubMenu(ui.createMenu('🔑 OAuth2 Setup')
       .addItem('🔄 Rigenera Refresh Token', 'rigeneraRefreshToken')
       .addItem('🔑 Converti Codice in Refresh Token', 'convertiCodiceInRefreshToken')
+      .addItem('📍 Mostra Redirect URI', 'mostraRedirectUri')
       .addItem('📋 Genera URL Autorizzazione', 'getRefreshTokenSimple')
       .addItem('🧪 Test Connessione OAuth', 'testConnessioneOAuth')
       .addItem('🔍 Verifica Stato Refresh Token', 'verificaStatoRefreshToken')
@@ -98,31 +99,23 @@
   }
 
   /**
-  * Versione semplificata di getRefreshToken che non si blocca
-  */
+   * Genera e mostra in log l'URL di autorizzazione (usa lo stesso redirect della Rigenera).
+   */
   function getRefreshTokenSimple() {
     try {
-      console.log('🔑 OAuth2 Setup - Versione semplificata');
-      
-      // Verifica credenziali
-      if (!API_CONFIG.CLIENT_ID || !API_CONFIG.CLIENT_SECRET) {
+      if (!API_CONFIG.CLIENT_ID || !API_CONFIG.CLIENT_SECRET) return null;
+      const redirectUri = getRedirectUriForOAuth();
+      if (!redirectUri) {
+        console.log('⚠️ Configura prima il Redirect URI (distribuisci come App Web o imposta API_CONFIG.REDIRECT_URI). Poi usa "Rigenera Refresh Token".');
         return null;
       }
-      
-      const clientId = API_CONFIG.CLIENT_ID;
-      const clientSecret = API_CONFIG.CLIENT_SECRET;
-      
-      console.log('📋 URL per ottenere il codice di autorizzazione:');
-      console.log('https://accounts.google.com/o/oauth2/auth?client_id=' + clientId + '&redirect_uri=urn:ietf:wg:oauth:2.0:oob&scope=https://www.googleapis.com/auth/adwords&response_type=code&access_type=offline&prompt=consent');
-      
-      console.log('📝 PROSSIMI PASSI:');
-      console.log('1. Copia l\'URL sopra e aprilo nel browser');
-      console.log('2. Autorizza l\'applicazione');
-      console.log('3. Copia il codice di autorizzazione');
-      console.log('4. Esegui getRefreshTokenWithCode(codice)');
-      
-      return 'URL generato - controlla i log';
-      
+      const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' +
+        'client_id=' + encodeURIComponent(API_CONFIG.CLIENT_ID) +
+        '&redirect_uri=' + encodeURIComponent(redirectUri) +
+        '&scope=' + encodeURIComponent('https://www.googleapis.com/auth/adwords') +
+        '&response_type=code&access_type=offline&prompt=consent';
+      console.log('📋 URL autorizzazione:', authUrl);
+      return authUrl;
     } catch (error) {
       console.error('❌ Errore:', error);
       return null;
@@ -130,57 +123,176 @@
   }
 
   /**
+   * Restituisce il redirect URI da usare per OAuth (obbligatorio con app in Production).
+   * Se REDIRECT_URI è impostato in config.gs, usa quello (così coincide con GCP). Altrimenti usa l'URL della Web App distribuita.
+   */
+  function getRedirectUriForOAuth() {
+    const fromConfig = (typeof API_CONFIG !== 'undefined' && API_CONFIG.REDIRECT_URI) ? String(API_CONFIG.REDIRECT_URI).trim() : '';
+    if (fromConfig) return fromConfig;
+    const fromDeploy = ScriptApp.getService().getUrl();
+    return fromDeploy || null;
+  }
+
+  /**
+   * Mostra il redirect URI usato dallo script (per copiarlo in GCP e evitare redirect_uri_mismatch).
+   */
+  function mostraRedirectUri() {
+    const redirectUri = getRedirectUriForOAuth();
+    const ui = SpreadsheetApp.getUi();
+    if (!redirectUri) {
+      ui.alert(
+        '📍 Redirect URI non configurato',
+        'Distribuisci lo script come App Web (Deploy → Nuova distribuzione → App Web) oppure imposta API_CONFIG.REDIRECT_URI in config.gs con l\'URL della tua App Web.',
+        ui.ButtonSet.OK
+      );
+      return;
+    }
+    ui.alert(
+      '📍 Redirect URI usato dallo script',
+      'Copia ESATTAMENTE questo URL e aggiungilo in Google Cloud Console:\n\n' +
+      'Credenziali → il tuo client OAuth (Applicazione web) → URI di reindirizzamento autorizzati → Aggiungi URI\n\n' +
+      redirectUri + '\n\n' +
+      '⚠️ Nessuno spazio, nessuna barra finale in più. Deve essere identico.',
+      ui.ButtonSet.OK
+    );
+  }
+
+  /**
+   * Callback OAuth: riceve il redirect da Google dopo l'autorizzazione.
+   * Salva il codice in ScriptProperties e mostra una pagina per completare lo scambio.
+   */
+  function doGet(e) {
+    try {
+      const params = e.parameter;
+      const err = params.error;
+      if (err) {
+        const desc = params.error_description || err;
+        return HtmlService.createHtmlOutput(
+          '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Errore OAuth</title></head><body style="font-family:sans-serif;padding:2em;">' +
+          '<h2>Errore autorizzazione</h2><p>' + desc + '</p>' +
+          '<p>Torna al foglio e riprova con "Rigenera Refresh Token".</p></body></html>'
+        ).setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+      }
+      const code = params.code;
+      if (!code) {
+        return HtmlService.createHtmlOutput(
+          '<!DOCTYPE html><html><head><meta charset="utf-8"><title>OAuth</title></head><body style="font-family:sans-serif;padding:2em;">' +
+          '<p>Nessun codice ricevuto. Torna al foglio e usa "Rigenera Refresh Token".</p></body></html>'
+        ).setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+      }
+      const redirectUri = getRedirectUriForOAuth();
+      const props = PropertiesService.getScriptProperties();
+      props.setProperty('oauth_auth_code', code);
+      if (redirectUri) props.setProperty('oauth_redirect_uri', redirectUri);
+      const html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Autorizzazione OK</title></head><body style="font-family:sans-serif;padding:2em;">' +
+        '<h2>Autorizzazione ricevuta</h2>' +
+        '<p>Il codice è stato salvato. Clicca il pulsante qui sotto per ottenere il Refresh Token.</p>' +
+        '<button id="btn">Ottieni Refresh Token</button>' +
+        '<pre id="out" style="margin-top:1em;white-space:pre-wrap;word-break:break-all;"></pre>' +
+        '<script>document.getElementById("btn").onclick=function(){this.disabled=true;document.getElementById("out").textContent="Attendere...";' +
+        'google.script.run.withSuccessHandler(function(r){var out=document.getElementById("out");if(r.error){out.textContent="Errore: "+r.error;}else{out.textContent="Refresh Token (copia in config.gs):\\n\\n"+r.refresh_token;}})' +
+        '.withFailureHandler(function(err){document.getElementById("out").textContent="Errore: "+err.message;})' +
+        '.convertiCodiceSalvato();};</script></body></html>';
+      return HtmlService.createHtmlOutput(html).setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+    } catch (err) {
+      return HtmlService.createHtmlOutput(
+        '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Errore</title></head><body style="font-family:sans-serif;padding:2em;">' +
+        '<h2>Errore durante il callback</h2><p>' + (err.message || String(err)) + '</p>' +
+        '<p><strong>Soluzione:</strong> Torna al foglio Google Sheets, menu &quot;Google Ads Costi&quot; → &quot;OAuth2 Setup&quot; → &quot;Converti Codice in Refresh Token&quot;. Il codice potrebbe essere già stato salvato.</p>' +
+        '<p>Se la pagina non si apre proprio, in Apps Script: Deploy → Gestisci distribuzioni → modifica l\'App Web e imposta &quot;Chi può accedere&quot; su <strong>Chiunque</strong>.</p></body></html>'
+      ).setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+    }
+  }
+
+  /**
+   * Scambia il codice salvato (da doGet) con access/refresh token. Usato dalla pagina HTML del callback.
+   */
+  function convertiCodiceSalvato() {
+    const props = PropertiesService.getScriptProperties();
+    const code = props.getProperty('oauth_auth_code');
+    let redirectUri = props.getProperty('oauth_redirect_uri');
+    if (!code) return { error: 'Nessun codice salvato. Riprova da "Rigenera Refresh Token".' };
+    if (!redirectUri) redirectUri = getRedirectUriForOAuth();
+    if (!redirectUri) return { error: 'Redirect URI non configurato. Imposta REDIRECT_URI in config.gs o distribuisci l\'app come Web App.' };
+    try {
+      const payload = {
+        client_id: API_CONFIG.CLIENT_ID,
+        client_secret: API_CONFIG.CLIENT_SECRET,
+        code: code,
+        grant_type: 'authorization_code',
+        redirect_uri: redirectUri
+      };
+      const response = UrlFetchApp.fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        contentType: 'application/x-www-form-urlencoded',
+        payload: Object.keys(payload).map(function(k) { return k + '=' + encodeURIComponent(payload[k]); }).join('&')
+      });
+      const responseText = response.getContentText();
+      if (response.getResponseCode() !== 200) throw new Error(responseText);
+      const tokens = JSON.parse(responseText);
+      if (tokens.error) throw new Error(tokens.error_description || tokens.error);
+      if (!tokens.refresh_token) throw new Error('Refresh token non ricevuto. Riprova con prompt=consent.');
+      props.deleteProperty('oauth_auth_code');
+      props.deleteProperty('oauth_redirect_uri');
+      return { refresh_token: tokens.refresh_token };
+    } catch (err) {
+      return { error: err.message || String(err) };
+    }
+  }
+
+  /**
   * Funzione per rigenerare il refresh token quando è scaduto
-  * Questa funzione gestisce il caso specifico di "invalid_grant" error
+  * Usa redirect reale (Web App); OOB urn:ietf:wg:oauth:2.0:oob è deprecato in Production
   */
   function rigeneraRefreshToken() {
     try {
       console.log('🔄 Rigenerazione refresh token...');
       
-      // Verifica che CLIENT_ID e CLIENT_SECRET siano configurati
       if (!API_CONFIG.CLIENT_ID || !API_CONFIG.CLIENT_SECRET) {
         console.error('❌ CLIENT_ID e CLIENT_SECRET devono essere configurati prima');
         return null;
       }
       
-      const clientId = API_CONFIG.CLIENT_ID;
-      const clientSecret = API_CONFIG.CLIENT_SECRET;
-      
-      // Genera l'URL di autorizzazione
-      const authUrl = `https://accounts.google.com/o/oauth2/auth?` +
-        `client_id=${clientId}&` +
-        `redirect_uri=urn:ietf:wg:oauth:2.0:oob&` +
-        `scope=https://www.googleapis.com/auth/adwords&` +
-        `response_type=code&` +
-        `access_type=offline&` +
-        `prompt=consent`;
-      
-      console.log('🔗 URL di autorizzazione generato:');
-      console.log(authUrl);
-      
-      // Mostra le istruzioni all'utente
-      const ui = SpreadsheetApp.getUi();
-      const response = ui.alert(
-        '🔑 Rigenerazione Refresh Token',
-        'Il tuo refresh token è scaduto. Segui questi passi:\n\n' +
-        '1. Copia questo URL e aprilo nel browser:\n\n' +
-        authUrl + '\n\n' +
-        '2. Autorizza l\'applicazione\n' +
-        '3. Copia il codice di autorizzazione\n' +
-        '4. Esegui la funzione "Converti Codice in Refresh Token" dal menu\n\n' +
-        'Vuoi che copi l\'URL negli appunti?',
-        ui.ButtonSet.YES_NO
-      );
-      
-      if (response === ui.Button.YES) {
-        // Prova a copiare negli appunti (funziona solo in alcuni browser)
-        try {
-          const html = `<script>navigator.clipboard.writeText('${authUrl}').then(() => alert('URL copiato negli appunti!')).catch(() => alert('Impossibile copiare automaticamente. Copia manualmente l\'URL dai log.'));</script>`;
-          HtmlService.createHtmlOutput(html).setTitle('Copia URL').setWidth(400).setHeight(200);
-        } catch (e) {
-          console.log('⚠️ Impossibile copiare automaticamente - copia manualmente l\'URL');
-        }
+      const redirectUri = getRedirectUriForOAuth();
+      if (!redirectUri) {
+        const ui = SpreadsheetApp.getUi();
+        ui.alert(
+          '🔑 Configura il Redirect URI',
+          'Con l\'app in Production non è più possibile usare il flusso "copia codice".\n\n' +
+          '1. In Apps Script: Deploy → Nuova distribuzione → Tipo "App Web"\n' +
+          '2. Descrizione: "OAuth callback"\n' +
+          '3. "Esegui come": Io\n' +
+          '4. "Chi può accedere": Solo io (o Chiunque, se preferisci)\n' +
+          '5. Distribuisci e copia l\'URL dell\'app (es. https://script.google.com/macros/s/.../exec)\n' +
+          '6. In Google Cloud Console: Credenziali → il tuo client OAuth → URI di reindirizzamento autorizzati → Aggiungi URI → incolla l\'URL\n' +
+          '7. In config.gs imposta API_CONFIG.REDIRECT_URI con quell\'URL (oppure lo script userà l\'URL della distribuzione se già presente)\n\n' +
+          'Poi riesegui "Rigenera Refresh Token".',
+          ui.ButtonSet.OK
+        );
+        return null;
       }
+      
+      const clientId = API_CONFIG.CLIENT_ID;
+      const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' +
+        'client_id=' + encodeURIComponent(clientId) +
+        '&redirect_uri=' + encodeURIComponent(redirectUri) +
+        '&scope=' + encodeURIComponent('https://www.googleapis.com/auth/adwords') +
+        '&response_type=code&access_type=offline&prompt=consent';
+      
+      console.log('🔗 URL di autorizzazione (redirect:', redirectUri, ')');
+      
+      const ui = SpreadsheetApp.getUi();
+      ui.alert(
+        '🔑 Rigenerazione Refresh Token',
+        '⚠️ REDIRECT URI USATO (deve essere identico in Google Cloud Console):\n\n' + redirectUri + '\n\n' +
+        'Se ricevi "redirect_uri_mismatch", in GCP → Credenziali → il tuo client OAuth → URI di reindirizzamento autorizzati aggiungi ESATTAMENTE l\'URL sopra (nessuno spazio, nessuna barra finale in più).\n\n' +
+        '---\n\n' +
+        '1. Apri questo URL nel browser:\n\n' + authUrl + '\n\n' +
+        '2. Autorizza l\'app (se vedi "App non verificata", clicca Avanzate → Vai a ...)\n' +
+        '3. Verrai reindirizzato a una pagina dello script: clicca "Ottieni Refresh Token"\n' +
+        '4. Copia il Refresh Token mostrato e incollalo in config.gs → API_CONFIG.REFRESH_TOKEN',
+        ui.ButtonSet.OK
+      );
       
       return authUrl;
       
@@ -191,100 +303,63 @@
   }
 
   /**
-  * Converte un codice di autorizzazione in refresh token
-  * Usa questa funzione dopo aver ottenuto il codice da rigeneraRefreshToken()
+  * Converte il codice di autorizzazione (salvato dal callback OAuth) in refresh token.
+  * Se hai già completato l'autorizzazione nella pagina di redirect, usa il pulsante "Ottieni Refresh Token" lì.
+  * Altrimenti esegui questa voce di menu dopo essere stato reindirizzato: legge il codice salvato e mostra il token.
   */
   function convertiCodiceInRefreshToken() {
+    const ui = SpreadsheetApp.getUi();
     try {
-      console.log('🔄 Conversione codice in refresh token...');
-      
-      // Verifica credenziali
       if (!API_CONFIG.CLIENT_ID || !API_CONFIG.CLIENT_SECRET) {
+        ui.alert('❌ Configurazione', 'CLIENT_ID e CLIENT_SECRET devono essere impostati in config.gs', ui.ButtonSet.OK);
         return null;
       }
-      
-      const clientId = API_CONFIG.CLIENT_ID;
-      const clientSecret = API_CONFIG.CLIENT_SECRET;
-      
-      // Richiedi il codice all'utente
-      const ui = SpreadsheetApp.getUi();
-      const code = ui.prompt(
-        '🔑 Codice di Autorizzazione',
-        'Incolla qui il codice di autorizzazione ottenuto da Google:',
-        ui.ButtonSet.OK_CANCEL
-      );
-      
-      if (code.getSelectedButton() === ui.Button.CANCEL || !code.getResponseText()) {
-        console.log('❌ Operazione annullata');
+      const props = PropertiesService.getScriptProperties();
+      const authCode = props.getProperty('oauth_auth_code');
+      let redirectUri = props.getProperty('oauth_redirect_uri') || getRedirectUriForOAuth();
+      if (!authCode) {
+        ui.alert(
+          '🔑 Nessun codice salvato',
+          'Usa prima "Rigenera Refresh Token", apri l\'URL nel browser, autorizza l\'app e nella pagina di redirect clicca "Ottieni Refresh Token".\n\n' +
+          'In alternativa completa il flusso dalla pagina di redirect.',
+          ui.ButtonSet.OK
+        );
         return null;
       }
-      
-      const authCode = code.getResponseText().trim();
-      console.log('🔄 Codice ricevuto, conversione in corso...');
-      
-      // Converti il codice in refresh token
+      if (!redirectUri) {
+        ui.alert('❌ Redirect URI non configurato. Imposta API_CONFIG.REDIRECT_URI in config.gs o distribuisci l\'app come Web App.', ui.ButtonSet.OK);
+        return null;
+      }
+      console.log('🔄 Conversione codice salvato in refresh token...');
+      const payload = {
+        client_id: API_CONFIG.CLIENT_ID,
+        client_secret: API_CONFIG.CLIENT_SECRET,
+        code: authCode,
+        grant_type: 'authorization_code',
+        redirect_uri: redirectUri
+      };
       const response = UrlFetchApp.fetch('https://oauth2.googleapis.com/token', {
         method: 'POST',
-        payload: {
-          client_id: clientId,
-          client_secret: clientSecret,
-          code: authCode,
-          grant_type: 'authorization_code',
-          redirect_uri: 'urn:ietf:wg:oauth:2.0:oob'
-        }
+        contentType: 'application/x-www-form-urlencoded',
+        payload: Object.keys(payload).map(function(k) { return k + '=' + encodeURIComponent(payload[k]); }).join('&')
       });
-      
-      const responseCode = response.getResponseCode();
       const responseText = response.getContentText();
-      
-      if (responseCode !== 200) {
-        console.error(`❌ Errore API (${responseCode}):`, responseText);
-        throw new Error(`Errore API: ${responseCode} - ${responseText}`);
-      }
-      
+      if (response.getResponseCode() !== 200) throw new Error(responseText);
       const tokens = JSON.parse(responseText);
-      
-      if (tokens.error) {
-        throw new Error('Errore API: ' + (tokens.error_description || tokens.error));
-      }
-      
-      if (!tokens.refresh_token) {
-        throw new Error('Refresh token non ricevuto. Riprova con prompt=consent');
-      }
-      
-      // Mostra il risultato
-      const result = ui.alert(
-        '✅ Refresh Token Generato!',
-        'Il nuovo refresh token è stato generato con successo!\n\n' +
-        '📋 PROSSIMI PASSI:\n' +
-        '1. Copia questo refresh token:\n\n' +
-        tokens.refresh_token + '\n\n' +
-        '2. Incollalo in config.gs nella sezione API_CONFIG.REFRESH_TOKEN\n' +
-        '3. Salva il file\n' +
-        '4. Verifica la connessione API\n\n' +
-        '⚠️ IMPORTANTE: Mantieni questo token sicuro!',
-        ui.ButtonSet.OK
-      );
-      
-      console.log('✅ Refresh Token generato:', tokens.refresh_token);
-      console.log('📝 Copia questo token in config.gs');
-      
-      return tokens.refresh_token;
-      
-    } catch (error) {
-      console.error('❌ Errore durante la conversione del codice:', error);
-      
-      const ui = SpreadsheetApp.getUi();
+      if (tokens.error) throw new Error(tokens.error_description || tokens.error);
+      if (!tokens.refresh_token) throw new Error('Refresh token non ricevuto. Riprova con prompt=consent.');
+      props.deleteProperty('oauth_auth_code');
+      props.deleteProperty('oauth_redirect_uri');
       ui.alert(
-        '❌ Errore Conversione',
-        'Si è verificato un errore:\n\n' + error.message + '\n\n' +
-        '🔧 SOLUZIONI:\n' +
-        '• Verifica che il codice sia corretto e non scaduto\n' +
-        '• Assicurati di aver usato prompt=consent nell\'URL OAuth2\n' +
-        '• Riprova con un nuovo codice di autorizzazione',
+        '✅ Refresh Token Generato!',
+        'Copia questo token in config.gs → API_CONFIG.REFRESH_TOKEN\n\n' + tokens.refresh_token,
         ui.ButtonSet.OK
       );
-      
+      console.log('✅ Refresh Token generato');
+      return tokens.refresh_token;
+    } catch (error) {
+      console.error('❌ Errore conversione:', error);
+      ui.alert('❌ Errore', (error && error.message) ? error.message : String(error), ui.ButtonSet.OK);
       return null;
     }
   }

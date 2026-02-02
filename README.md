@@ -23,59 +23,110 @@ Script Google Apps Script per estrarre automaticamente i costi mensili dagli acc
 
 ## 📚 Setup Completo
 
-### 1. Configurazione Google Cloud Platform
+Segui i passi nell'ordine. L'OAuth richiede un client **Applicazione web** e un **redirect URI** reale (il flusso "copia codice" OOB è deprecato in Production).
 
-1. **Vai su [console.cloud.google.com](https://console.cloud.google.com)**
-2. **Crea un nuovo progetto** o seleziona quello esistente
-3. **Abilita le API**:
-   - Google Ads API
-   - Google Sheets API
-4. **Crea credenziali OAuth 2.0**:
-   - Tipo: "Desktop app"
-   - Nome: "Google Ads Costi Script"
-5. **Scarica il file JSON** delle credenziali
+---
 
-### 2. Richiesta Developer Token
+### 1. Google Cloud Platform
 
-1. **Vai su [g.co/adwords/apitoken](https://g.co/adwords/apitoken)**
-2. **Compila il form** con i dettagli del tuo progetto
-3. **Attendi l'approvazione** (solitamente 24-48 ore)
-4. **Ricevi il Developer Token** nell'interfaccia admin di Google Ads
+1. Vai su **[console.cloud.google.com](https://console.cloud.google.com)** e seleziona (o crea) il progetto.
+2. **Abilita le API**: APIs & Services → Libreria → cerca e abilita **Google Ads API** e **Google Sheets API**.
+3. **Schermata consenso OAuth** (APIs & Services → Schermata consenso OAuth):
+   - Tipo utente: **Interno** (se hai Google Workspace) oppure **Esterno** (se usi solo Gmail).
+   - Compila nome app, email di supporto, ecc.
+   - **Pubblica l'app**: imposta stato di pubblicazione su **In production** (così il refresh token non scade dopo 7 giorni). Per uso solo personale non serve la verifica Google; se vedi "App non verificata" potrai comunque procedere (Avanzate → Vai a …).
+4. **Credenziali OAuth 2.0** (APIs & Services → Credenziali):
+   - **+ Crea credenziali** → **ID client OAuth**.
+   - Tipo applicazione: **Applicazione web** (non "Desktop": il redirect OOB non è più supportato).
+   - Nome: es. "Google Ads Costi Script Web".
+   - **Origini JavaScript autorizzate**: opzionale; puoi lasciare vuoto o aggiungere `https://script.google.com`.
+   - **URI di reindirizzamento autorizzati**: per ora lascia vuoto; li aggiungerai al passo 4 dopo aver distribuito l'App Web.
+   - Clicca **Crea** e annota **Client ID** e **Client secret**.
 
-### 3. Installazione Script
+---
 
-1. **Apri Google Sheets** e crea un nuovo foglio
-2. **Vai su Estensioni > Apps Script**
-3. **Copia i file dello script** nei file del progetto:
-   - `config.gs` (configurazione principale)
-   - `google-ads-costs-script.gs` (file principale)
-   - `utilities.gs` (funzioni di supporto e OAuth)
+### 2. Developer Token Google Ads
 
-### 4. Configurazione Credenziali
+1. Vai su **[g.co/adwords/apitoken](https://g.co/adwords/apitoken)**.
+2. Compila il form con i dettagli del progetto.
+3. Attendi l'approvazione (solitamente 24–48 ore) e copia il **Developer Token** dall'interfaccia admin di Google Ads.
 
-Nel file `config.gs`, aggiorna la sezione `API_CONFIG`:
+---
+
+### 3. Installazione dello script
+
+1. Apri **Google Sheets** e crea un nuovo foglio (o usa uno esistente).
+2. **Estensioni** → **Apps Script**.
+3. Nel progetto Apps Script, crea/aggiorna i file con il codice dello script:
+   - `config.gs` (configurazione)
+   - `google-ads-costs-script.gs` (logica principale)
+   - `utilities.gs` (menu, OAuth, utilità)
+
+4. In **config.gs** imposta subito (REFRESH_TOKEN e REDIRECT_URI li aggiungerai ai passi 5 e 6):
 
 ```javascript
 const API_CONFIG = {
   DEVELOPER_TOKEN: 'IL_TUO_DEVELOPER_TOKEN',
-  CLIENT_ID: 'IL_TUO_CLIENT_ID',
+  CLIENT_ID: 'IL_TUO_CLIENT_ID',           // dal client "Applicazione web"
   CLIENT_SECRET: 'IL_TUO_CLIENT_SECRET',
-  REFRESH_TOKEN: 'IL_TUO_REFRESH_TOKEN'
+  REFRESH_TOKEN: '',                       // lo otterrai al passo 6
+  REDIRECT_URI: ''                         // lo imposti al passo 4 dopo il deploy
 };
 ```
 
-**Per ottenere il Refresh Token:**
-1. Esegui la funzione "🔑 OAuth2 Setup > Rigenera Refresh Token" dal menu
-2. Segui le istruzioni per autorizzare l'app
-3. Copia il refresh token generato
+Salva il progetto (Ctrl+S).
 
-### 5. Configurazione Account (Interattiva)
+---
 
-**Non più necessario configurare manualmente i Customer ID!**
+### 4. Distribuzione Web App e Redirect URI
 
-1. **Esegui "📊 Seleziona Account"** dal menu personalizzato
-2. **Seleziona gli account** che vuoi monitorare tramite checkbox
-3. **Salva la configurazione** - verrà creata automaticamente la tab "Configurazione"
+Lo script usa un redirect reale (URL della Web App); l'URL va aggiunto in Google Cloud e in `config.gs`.
+
+1. **Distribuisci come App Web** (in Apps Script):
+   - **Deploy** → **Nuova distribuzione**.
+   - Clicca sull'ingranaggio accanto a "Seleziona tipo" → **App Web**.
+   - **Descrizione**: es. "OAuth callback".
+   - **Esegui come**: Io.
+   - **Chi può accedere**: **Chiunque** (obbligatorio: con "Solo io" il redirect dopo l'autorizzazione mostra "Impossibile aprire il file").
+   - **Distribuisci** e **copia l'URL dell'app** (es. `https://script.google.com/macros/s/AKfycbw.../exec`).
+
+2. **Aggiungi l'URI in Google Cloud**:
+   - Console GCP → **Credenziali** → apri il client OAuth **Applicazione web**.
+   - **URI di reindirizzamento autorizzati** → **Aggiungi URI** → incolla **esattamente** l'URL copiato (nessuno spazio, nessuna barra finale) → **Salva**.
+
+3. **Redirect URI in config.gs**:
+   - In `config.gs` imposta `API_CONFIG.REDIRECT_URI` con lo **stesso** URL dell'app (così lo script e GCP usano lo stesso valore).
+
+4. **Verifica**: dal foglio, menu **Google Ads Costi** → **OAuth2 Setup** → **Mostra Redirect URI**. L'URL mostrato deve essere identico a quello in GCP.
+
+### 5. Ottenere il Refresh Token
+
+1. Dal foglio: menu **Google Ads Costi** → **OAuth2 Setup** → **Rigenera Refresh Token**.
+2. Apri nel browser l'URL mostrato nel dialog.
+3. Autorizza l'app (se compare "App non verificata", clicca **Avanzate** → **Vai a … (non sicuro)**).
+4. Dopo l'autorizzazione verrai reindirizzato alla pagina dello script: clicca **Ottieni Refresh Token**.
+5. Copia il **Refresh Token** mostrato.
+6. In Apps Script apri **config.gs**, incolla il valore in `API_CONFIG.REFRESH_TOKEN` e **salva**.
+
+**Non serve rifare il deploy** dopo aver aggiornato il refresh token: le esecuzioni dal foglio (e i trigger) usano sempre il codice salvato nell'editor.
+
+**Se compare "Funzione script non trovata: doGet"**: crea una **nuova distribuzione** (Deploy → Nuova distribuzione → App Web, "Chiunque"), aggiorna l'URL in GCP e in `REDIRECT_URI`, poi ripeti dal punto 1.
+
+---
+
+### 6. Configurazione account (interattiva)
+
+1. Dal foglio: menu **Google Ads Costi** → **Seleziona Account**.
+2. Seleziona con le checkbox gli account da monitorare e salva.
+3. Verrà creata/aggiornata la tab **Configurazione** con i Customer ID e i nomi account.
+
+---
+
+### 7. Trigger (schedulazione)
+
+1. In Apps Script: **Trigger** (icona orologio) → **+ Aggiungi trigger**.
+2. **Funzione**: `estraiCostiMensili` | **Evento**: Time-driven | **Tipo**: Month timer | **Giorno**: 1 | **Ora**: 9:00 → Salva.
+3. **(Opzionale)** Trigger giornaliero per `mantieniRefreshTokenAttivo` (es. 8:00). In Production non è obbligatorio ma consigliato.
 
 ## 🚀 Utilizzo
 
@@ -92,8 +143,10 @@ const API_CONFIG = {
 Lo script crea automaticamente un menu "🚀 Google Ads Costi" con:
 
 #### 🔑 OAuth2 Setup
-- **Rigenera Refresh Token** - Setup iniziale OAuth2
-- **Converti Codice in Refresh Token** - Conversione manuale
+- **Rigenera Refresh Token** - Avvia il flusso OAuth e ottieni il refresh token
+- **Converti Codice in Refresh Token** - Usa il codice salvato dal redirect (se non hai cliccato "Ottieni Refresh Token" sulla pagina)
+- **Mostra Redirect URI** - Mostra l'URL da aggiungere in Google Cloud (per evitare redirect_uri_mismatch)
+- **Test Connessione OAuth** / **Verifica Stato Refresh Token** / **Mantieni Token Attivo**
 
 #### 📊 Gestione Account
 - **Seleziona Account** - Interfaccia per configurare account
@@ -161,7 +214,11 @@ Lo script gestisce automaticamente:
 | Errore | Causa | Soluzione |
 |--------|-------|-----------|
 | "Configurazione errata: CUSTOMER_IDS non definito" | Nessun account configurato | Usa "Seleziona Account" dal menu |
-| "invalid_grant" | Refresh token scaduto | Usa "Rigenera Refresh Token" |
+| "invalid_grant" | Refresh token scaduto | Usa "Rigenera Refresh Token" (dopo aver configurato Redirect URI) |
+| "400: invalid_request" / OOB deprecato | App in Production con redirect OOB | Usa client **Applicazione web** e Redirect URI (vedi Setup passo 4) |
+| "400: redirect_uri_mismatch" | L'URL usato dallo script non coincide con GCP | Menu **Mostra Redirect URI**: copia l'URL mostrato e aggiungilo in GCP (identico). Imposta `REDIRECT_URI` in config.gs con lo stesso URL. |
+| "Impossibile aprire il file" dopo l'auth | Web App con accesso "Solo io" | Deploy → Gestisci distribuzioni → Modifica App Web → **Chi può accedere**: **Chiunque** |
+| "Funzione script non trovata: doGet" | Distribuzione Web App con versione vecchia | Deploy → **Nuova distribuzione** → App Web (stesso tipo, Chiunque), copia il nuovo URL, aggiorna GCP e `REDIRECT_URI`, poi ripeti Rigenera Refresh Token |
 | "HTTP 403" | Permessi insufficienti | Verifica Manager Account ID |
 | "HTTP 404" | Endpoint API errato | Verifica versione API (v21) |
 
